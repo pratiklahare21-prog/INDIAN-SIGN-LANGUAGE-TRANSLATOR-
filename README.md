@@ -8,7 +8,7 @@ Runs entirely **local and offline** on your Windows PC — built with MediaPipe 
 ## 🎯 Features
 
 - **A–Z Fingerspelling Recognition** — static hand poses for every letter via a trained MLP classifier.
-- **60 Word Signs** — dynamic 2-hand gesture recognition via a sequence-trained Bidirectional LSTM.
+- **Dataset-derived word signs** — class names and count come from the media folders actually found.
 - **Sentence Builder** — tap to append recognized words/letters, edit on the fly, auto-space tokens.
 - **Text-to-Speech (TTS)** — one-click `pyttsx3` (SAPI5 on Windows) reads the full sentence aloud.
 - **Live Webcam Feed** — low-latency OpenCV capture with MediaPipe landmark overlay drawn in-browser.

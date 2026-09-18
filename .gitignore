@@ -1,0 +1,28 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local datasets and large corpora
+dataset/
+archive/
+word_dataset/
+word_landmarks/
+
+# Generated preprocessing/training outputs
+data/landmarks/
+data/*.csv
+data/*.log
+models/*.keras
+models/*.h5
+models/scaler_*.json
+models/*_training_curves.png
+models/hand_landmarker.task
+model/
+
+# Local IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

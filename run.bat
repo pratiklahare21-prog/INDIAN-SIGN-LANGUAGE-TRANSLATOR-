@@ -20,9 +20,10 @@ echo [INFO] Detected Python version: !PYVER!
 
 echo !PYVER!|findstr /b /c:"3.10" /c:"3.11" /c:"3.12">nul
 if errorlevel 1 (
-    echo [WARNING] Python !PYVER! detected. TensorFlow 2.16 supports 3.10-3.12.
-    echo           Install / continue at your own risk.
-    echo.
+    echo [ERROR] Python !PYVER! detected. TensorFlow 2.16 requires Python 3.10-3.12.
+    echo         Install Python 3.10, 3.11, or 3.12 and run this launcher again.
+    pause
+    exit /b 1
 )
 
 if not exist "venv\Scripts\python.exe" (

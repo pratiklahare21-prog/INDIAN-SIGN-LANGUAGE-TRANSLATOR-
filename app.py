@@ -202,7 +202,7 @@ def _sidebar(st_inst):
             0.0, 1.0, value=word_th_default, step=0.01,
         )
 
-        debounce_default = cfg.DEBOUNCE_FRAMES if cfg is not None else 15
+        debounce_default = 8
         debounce_frames = st_inst.number_input(
             "Debounce frames", min_value=1, max_value=60, value=debounce_default,
         )
@@ -221,7 +221,37 @@ def _sidebar(st_inst):
         tts_volume = st_inst.slider(
             "Speech volume", 0.0, 1.0, value=vol_default, step=0.01,
         )
-        auto_speak = st_inst.checkbox("Auto-speak on new word", value=False)
+        auto_speak = st_inst.checkbox("Auto-speak on new word", value=True)
+        if st_inst.button("🎵 Test Sound Output", use_container_width=True):
+            sp = st_inst.session_state.speech_engine
+            test_phrase = "Namaste, Indian Sign Language translator sound is working perfectly."
+            if sp is not None:
+                try:
+                    sp.speak(test_phrase, block=False)
+                except Exception:
+                    pass
+            try:
+                import json
+                import streamlit.components.v1 as components
+                js = f"""
+                <script>
+                try {{
+                    if ('speechSynthesis' in window) {{
+                        window.speechSynthesis.cancel();
+                        var u = new SpeechSynthesisUtterance({json.dumps(test_phrase)});
+                        u.rate = 1.0;
+                        u.volume = 1.0;
+                        window.speechSynthesis.speak(u);
+                    }}
+                }} catch(e) {{
+                    console.warn(e);
+                }}
+                </script>
+                """
+                components.html(js, height=0, width=0)
+            except Exception:
+                pass
+            st_inst.toast("🔊 Playing test voice...")
 
         st_inst.subheader("📷 Webcam")
         cam_default = cfg.WEBCAM_INDEX if cfg is not None else 0
@@ -317,9 +347,56 @@ def _section_webcam(st_inst, settings, cfg):
             pass
         return
 
+    audio_placeholder = st_inst.empty()
+
+    def _trigger_speech(text_to_speak: str):
+        if not text_to_speak:
+            return
+        clean_text = str(text_to_speak).strip()
+        # 1. Server TTS
+        if sp is not None:
+            try:
+                sp.speak(clean_text, block=False)
+            except Exception as _e:
+                print(f"[app.py] server speak error: {_e}")
+        # 2. Browser Web Speech API for 100% audible sound
+        try:
+            import json
+            import streamlit.components.v1 as components
+            safe_val = json.dumps(clean_text)
+            js = f"""
+            <script>
+            try {{
+                if ('speechSynthesis' in window) {{
+                    window.speechSynthesis.cancel();
+                    var u = new SpeechSynthesisUtterance({safe_val});
+                    u.rate = 1.0;
+                    u.pitch = 1.0;
+                    u.volume = 1.0;
+                    window.speechSynthesis.speak(u);
+                }}
+            }} catch(err) {{
+                console.warn('TTS error:', err);
+            }}
+            </script>
+            """
+            with audio_placeholder:
+                components.html(js, height=0, width=0)
+        except Exception:
+            pass
+
+    # Hold-to-confirm tracker variables
+    current_candidate = ""
+    candidate_conf = 0.0
+    hold_frames = 0
+    REQUIRED_HOLD_FRAMES = max(6, int(settings.get("debounce_frames", 8)))
+    locked_sign = ""
+    last_confirmed_sign = ""
+    confirmed_flash_frames = 0
+
     try:
-        max_frames = 600
-        frame_sleep = 1.0 / 20.0
+        max_frames = 1200
+        frame_sleep = 1.0 / 22.0
         for _frame_i in range(max_frames):
             if not st_inst.session_state.get("run_webcam_cb", False):
                 break
@@ -339,11 +416,105 @@ def _section_webcam(st_inst, settings, cfg):
             vec_63 = None
             annotated = frame
             try:
-                vec_63, annotated, _detected = ht.process_frame(frame)
+                vec_63, annotated, detected = ht.process_frame(frame)
             except Exception as _e:
                 print(f"[app.py] process_frame error: {_e}")
                 continue
 
+            hands_count = getattr(ht, "last_num_hands", 0)
+            active_gest = getattr(ht, "last_gesture", "")
+            conf_val = float(getattr(ht, "last_confidence", 0.0))
+
+            alpha_label, alpha_conf = "", 0.0
+            word_label, word_conf = "", 0.0
+
+            # 1. Model-based recognizers
+            if settings["mode"] in ("Alphabet only", "Both") and ar is not None:
+                try:
+                    alpha_label, alpha_conf = ar.predict(vec_63, threshold=settings["alphabet_th"])
+                except Exception as _e:
+                    print(f"[app.py] Alphabet predict error: {_e}")
+
+            if settings["mode"] in ("Words only", "Both") and wr is not None:
+                try:
+                    wr.update(vec_63)
+                    word_label, word_conf = wr.predict(threshold=settings["word_th"])
+                except Exception as _e:
+                    print(f"[app.py] Word predict error: {_e}")
+
+            # Use an explicit offline fallback when no trained model exists.
+            # Trained model predictions always take precedence.
+            if not alpha_label and not word_label and active_gest and conf_val >= 0.70:
+                if len(active_gest) == 1 and settings["mode"] in ("Alphabet only", "Both"):
+                    if ar is None or not ar.model_available:
+                        alpha_label, alpha_conf = active_gest, conf_val
+                elif len(active_gest) > 1 and settings["mode"] in ("Words only", "Both"):
+                    if wr is None or not wr.model_available:
+                        word_label, word_conf = active_gest, conf_val
+
+            # Determine best candidate sign in this frame.
+            frame_best_sign = ""
+            frame_best_conf = 0.0
+            if word_label and word_conf >= settings["word_th"]:
+                frame_best_sign = word_label
+                frame_best_conf = word_conf
+            elif alpha_label and alpha_conf >= settings["alphabet_th"]:
+                frame_best_sign = alpha_label
+                frame_best_conf = alpha_conf
+
+            # 3. Hold-to-Confirm stability logic
+            h_img, w_img = annotated.shape[:2]
+
+            if frame_best_sign:
+                if frame_best_sign == current_candidate:
+                    hold_frames += 1
+                else:
+                    current_candidate = frame_best_sign
+                    candidate_conf = frame_best_conf
+                    hold_frames = 1
+                    if current_candidate != locked_sign:
+                        locked_sign = ""  # unlock when gesture changes
+            else:
+                if hold_frames > 0:
+                    hold_frames -= 1
+                if hold_frames == 0:
+                    current_candidate = ""
+                    locked_sign = ""
+
+            hold_progress = min(1.0, hold_frames / float(REQUIRED_HOLD_FRAMES))
+
+            # Visual Hold-to-Confirm banner at bottom of frame
+            if current_candidate and hold_frames > 0:
+                bar_w = int((w_img - 40) * hold_progress)
+                # Bottom panel background
+                cv2.rectangle(annotated, (15, h_img - 55), (w_img - 15, h_img - 15), (20, 24, 33), -1)
+                cv2.rectangle(annotated, (15, h_img - 55), (w_img - 15, h_img - 15), (100, 100, 100), 1)
+
+                if hold_progress >= 1.0 or confirmed_flash_frames > 0:
+                    # Confirmed state (Bright Green)
+                    cv2.rectangle(annotated, (15, h_img - 55), (w_img - 15, h_img - 15), (0, 180, 80), -1)
+                    confirm_text = f"CONFIRMED & SPOKEN: {current_candidate.upper()}"
+                    cv2.putText(annotated, confirm_text, (25, h_img - 26), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (255, 255, 255), 2, cv2.LINE_AA)
+                else:
+                    # Progress bar fill (Orange / Gold)
+                    cv2.rectangle(annotated, (20, h_img - 50), (20 + bar_w, h_img - 20), (0, 165, 255), -1)
+                    hold_text = f"Holding: {current_candidate.upper()} ({int(hold_progress * 100)}%) - Hold 1s to confirm"
+                    cv2.putText(annotated, hold_text, (25, h_img - 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+
+            if confirmed_flash_frames > 0:
+                confirmed_flash_frames -= 1
+
+            # 4. Confirmation Trigger when threshold reached
+            if hold_progress >= 1.0 and current_candidate and current_candidate != locked_sign:
+                locked_sign = current_candidate
+                last_confirmed_sign = current_candidate
+                confirmed_flash_frames = 8
+                if sb is not None:
+                    sb.add_token(current_candidate, candidate_conf)
+                if settings.get("auto_speak", True):
+                    _trigger_speech(current_candidate)
+
+            # Render image
             try:
                 rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
             except Exception:
@@ -353,63 +524,22 @@ def _section_webcam(st_inst, settings, cfg):
                 frame_placeholder.image(rgb, channels="RGB", use_container_width=True)
             except TypeError:
                 frame_placeholder.image(rgb, channels="RGB", use_column_width=True)
-            status_placeholder.caption(f"Last frame: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
 
-            alpha_label, alpha_conf = "", 0.0
-            word_label, word_conf = "", 0.0
-
-            if settings["mode"] in ("Alphabet only", "Both"):
-                if ar is not None:
-                    try:
-                        alpha_label, alpha_conf = ar.predict(vec_63, threshold=settings["alphabet_th"])
-                    except Exception as _e:
-                        print(f"[app.py] Alphabet predict error: {_e}")
-
-            if settings["mode"] in ("Words only", "Both"):
-                if wr is not None:
-                    try:
-                        wr.update(vec_63)
-                        word_label, word_conf = wr.predict(threshold=settings["word_th"])
-                    except Exception as _e:
-                        print(f"[app.py] Word predict error: {_e}")
-
-            if settings["mode"] in ("Alphabet only", "Both"):
-                if alpha_label and alpha_conf >= settings["alphabet_th"] and sb is not None:
-                    try:
-                        added = sb.add_token(alpha_label, alpha_conf)
-                        if added and settings["auto_speak"] and sp is not None:
-                            try:
-                                cur = sb.get_text()
-                                stripped = cur.strip()
-                                if stripped:
-                                    last = stripped.rsplit(" ", 1)[-1]
-                                    sp.speak(last, block=False)
-                            except Exception:
-                                pass
-                    except Exception as _e:
-                        print(f"[app.py] add alpha token error: {_e}")
-
-            if settings["mode"] in ("Words only", "Both"):
-                if word_label and word_conf >= settings["word_th"] and sb is not None:
-                    try:
-                        added = sb.add_token(word_label, word_conf)
-                        if added:
-                            try:
-                                if hasattr(wr, "reset"):
-                                    wr.reset()
-                            except Exception:
-                                pass
-                            if settings["auto_speak"] and sp is not None:
-                                try:
-                                    cur = sb.get_text()
-                                    stripped = cur.strip()
-                                    if stripped:
-                                        last = stripped.rsplit(" ", 1)[-1]
-                                        sp.speak(last, block=False)
-                                except Exception:
-                                    pass
-                    except Exception as _e:
-                        print(f"[app.py] add word token error: {_e}")
+            # Status caption
+            status_info = f"🕒 `{datetime.now().strftime('%H:%M:%S')}` | 🖐️ **Hands: {hands_count}**"
+            if current_candidate:
+                status_info += f" | 🎯 Sign: **{current_candidate.upper()}** ({int(candidate_conf * 100)}%)"
+                if ((ar is None or not ar.model_available) and (wr is None or not wr.model_available)):
+                    status_info += " | ℹ️ Rule-based fallback"
+                if hold_progress < 1.0:
+                    status_info += f" | ⏳ *Holding {int(hold_progress * 100)}%*"
+                else:
+                    status_info += " | 🔊 **Confirmed!**"
+            if sb is not None:
+                cur_s = sb.get_text()
+                if cur_s:
+                    status_info += f" | ✍️ *\"{cur_s}\"*"
+            status_placeholder.markdown(status_info)
 
             time.sleep(frame_sleep)
     finally:
@@ -536,16 +666,39 @@ def _section_sentence(st_inst, settings):
 
     with c5:
         if st_inst.button("🔊 Speak", use_container_width=True):
-            spoken = False
-            if sp is not None and sb is not None:
+            sentence_val = sb.get_text() if sb is not None else ""
+            if sentence_val.strip():
+                # 1. Server TTS
+                if sp is not None:
+                    try:
+                        sp.speak(sentence_val, block=False)
+                    except Exception as _e:
+                        print(f"[app.py] speak error: {_e}")
+                # 2. Browser Web Speech API
                 try:
-                    spoken = sp.speak(sb.get_text(), block=False)
-                except Exception as _e:
-                    print(f"[app.py] speak error: {_e}")
-            if not spoken:
-                st_inst.warning(
-                    "Speech engine unavailable. Install pyttsx3 and ensure a TTS voice is configured."
-                )
+                    import json
+                    import streamlit.components.v1 as components
+                    js = f"""
+                    <script>
+                    try {{
+                        if ('speechSynthesis' in window) {{
+                            window.speechSynthesis.cancel();
+                            var u = new SpeechSynthesisUtterance({json.dumps(sentence_val)});
+                            u.rate = 1.0;
+                            u.volume = 1.0;
+                            window.speechSynthesis.speak(u);
+                        }}
+                    }} catch(e) {{
+                        console.warn(e);
+                    }}
+                    </script>
+                    """
+                    components.html(js, height=0, width=0)
+                except Exception:
+                    pass
+                st_inst.toast(f"🔊 Spoken: \"{sentence_val}\"")
+            else:
+                st_inst.info("Sentence is empty. Perform signs or type a message to speak.")
 
 
 def _section_history(st_inst):

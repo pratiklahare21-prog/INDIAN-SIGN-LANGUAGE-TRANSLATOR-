@@ -18,6 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_DIR = BASE_DIR / "dataset"
 DATASET_ALPHABET_DIR = DATASET_DIR / "alphabet"
 DATASET_WORDS_DIR = DATASET_DIR / "words"
+DATASET_SENTENCES_DIR = BASE_DIR / "archive" / "ISL_CSLRT_Corpus" / "ISL_CSLRT_Corpus" / "Videos_Sentence_Level"
 
 MODELS_DIR = BASE_DIR / "models"
 DATA_DIR = BASE_DIR / "data"
@@ -27,6 +28,8 @@ ALPHABET_MODEL_PATH = MODELS_DIR / "alphabet_model.keras"
 WORD_MODEL_PATH = MODELS_DIR / "word_model.keras"
 ALPHABET_LABELS_PATH = MODELS_DIR / "labels_alphabet.json"
 WORD_LABELS_PATH = MODELS_DIR / "labels_word.json"
+SENTENCE_MODEL_PATH = MODELS_DIR / "sentence_model.keras"
+SENTENCE_LABELS_PATH = MODELS_DIR / "labels_sentences.json"
 
 LANDMARKS_PER_HAND = 21
 COORD_PER_LANDMARK = 3
@@ -36,6 +39,7 @@ IMAGE_WIDTH = 640
 IMAGE_HEIGHT = 480
 
 SEQUENCE_LENGTH = 60
+SENTENCE_SOURCE_FRAMES = 4
 WORD_SAMPLE_STRIDE = 2
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
@@ -43,6 +47,7 @@ VIDEO_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".webm")
 
 ALPHABET_THRESHOLD = 0.70
 WORD_THRESHOLD = 0.75
+SENTENCE_THRESHOLD = 0.80
 DEBOUNCE_FRAMES = 15
 
 ALPHABET_MODEL_KWARGS = dict(
@@ -70,6 +75,11 @@ WORD_TRAIN_KWARGS = dict(
     validation_split=0.2,
     learning_rate=1e-3,
     early_stopping_patience=12,
+)
+SENTENCE_TRAIN_KWARGS = dict(
+    batch_size=8,
+    epochs=50,
+    learning_rate=1e-3,
 )
 
 PYTTSX_RATE = 175

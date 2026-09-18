@@ -68,6 +68,13 @@ if not exist "models\word_model.keras" (
         if not errorlevel 1 python src\train_words.py --quick
     )
 )
+if not exist "models\sentence_model.keras" (
+    if exist "archive\ISL_CSLRT_Corpus\ISL_CSLRT_Corpus\Videos_Sentence_Level" (
+        echo [INFO ] ISL sentence videos found. Running sentence preprocessing + training.
+        python src\preprocess_sentences.py
+        if not errorlevel 1 python src\train_sentences.py --quick
+    )
+)
 
 echo.
 echo [INFO] Launching Streamlit UI ...

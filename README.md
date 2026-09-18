@@ -8,7 +8,7 @@ Runs entirely **local and offline** on your Windows PC — built with MediaPipe 
 ## 🎯 Features
 
 - **A–Z Fingerspelling Recognition** — static hand poses for every letter via a trained MLP classifier.
-- **Dataset-derived word signs** — class names and count come from the media folders actually found.
+- **Dataset-derived ISL words and sentences** — class names and count come from the media folders actually found. The bundled ISL-CSLRT corpus supplies sentence videos; WLASL is ASL and is not mislabeled as ISL.
 - **Sentence Builder** — tap to append recognized words/letters, edit on the fly, auto-space tokens.
 - **Text-to-Speech (TTS)** — one-click `pyttsx3` (SAPI5 on Windows) reads the full sentence aloud.
 - **Live Webcam Feed** — low-latency OpenCV capture with MediaPipe landmark overlay drawn in-browser.
@@ -147,7 +147,12 @@ python src\train_alphabet.py
 
 python src\preprocess_words.py
 python src\train_words.py
+
+python src\preprocess_sentences.py
+python src\train_sentences.py
 ```
+
+The bundled corpus is read from `archive\ISL_CSLRT_Corpus\...\Videos_Sentence_Level\` and produces complete sentence labels from its folder names. The sentence model is temporal; it is not trained by repeating a still image.
 
 **What each step produces:**
 

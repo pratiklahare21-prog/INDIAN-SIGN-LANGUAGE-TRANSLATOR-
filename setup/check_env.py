@@ -59,10 +59,12 @@ def check_dirs() -> list[tuple[str, bool]]:
 def dataset_summary(root: Path) -> dict[str, int]:
     from src.dataset_utils import count_classes
     archive_root = config.BASE_DIR / "archive" / "ISL_CSLRT_Corpus" / "ISL_CSLRT_Corpus" / "Frames_Word_Level"
+    sentence_root = config.DATASET_SENTENCES_DIR
     return {
         "alphabet": count_classes(config.DATASET_ALPHABET_DIR, config.IMAGE_EXTS),
         "words": count_classes(config.DATASET_WORDS_DIR, (*config.VIDEO_EXTS, *config.IMAGE_EXTS)),
         "archive_words": count_classes(archive_root, config.IMAGE_EXTS),
+        "sentences": len([p for p in sentence_root.iterdir() if p.is_dir()]) if sentence_root.is_dir() else 0,
     }
 
 
@@ -72,6 +74,8 @@ def model_summary() -> dict[str, bool]:
         "word_model": config.WORD_MODEL_PATH.is_file(),
         "labels_alphabet": config.ALPHABET_LABELS_PATH.is_file(),
         "labels_word": config.WORD_LABELS_PATH.is_file(),
+        "sentence_model": config.SENTENCE_MODEL_PATH.is_file(),
+        "labels_sentences": config.SENTENCE_LABELS_PATH.is_file(),
     }
 
 
@@ -91,6 +95,8 @@ def next_steps(stats: dict[str, int], models: dict[str, bool]) -> list[str]:
                 "https://www.kaggle.com/datasets/prasadshet/indian-sign-language-video-dataset"
                 "  -> extract into dataset\\words\\<ClassName>\\<videos>..."
             )
+    if stats["sentences"] and not models["sentence_model"]:
+        steps.append("3. Preprocess+train sentence videos: python src\\preprocess_sentences.py && python src\\train_sentences.py")
     if stats["alphabet"] == 0:
         steps.append(
             "3. Put A-Z images into dataset\\alphabet\\A\\, ...\\Z\\ (>= 10 images each)."
@@ -125,6 +131,7 @@ def main() -> int:
     print(f"  - alphabet classes: {stats['alphabet']}  (want 26)")
     print(f"  - word classes:     {stats['words']}     (from dataset/words)")
     print(f"  - archive classes:  {stats['archive_words']} (from bundled Frames_Word_Level)")
+    print(f"  - sentence folders: {stats['sentences']} (from Videos_Sentence_Level)")
 
     models = model_summary()
     print("\n[Models]")

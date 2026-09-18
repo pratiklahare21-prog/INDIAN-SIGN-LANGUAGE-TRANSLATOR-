@@ -24,7 +24,7 @@ def _lazy_st():
 
 def _lazy_src():
     mods = {"HandTracker": None, "AlphabetRecognizer": None,
-            "WordRecognizer": None, "SentenceBuilder": None,
+            "WordRecognizer": None, "SentenceRecognizer": None, "SentenceBuilder": None,
             "SpeechEngine": None}
     src_dir = BASE_DIR / "src"
     if src_dir not in sys.path:
@@ -44,6 +44,11 @@ def _lazy_src():
         mods["WordRecognizer"] = _WR
     except Exception as _e:
         print(f"[app.py] WordRecognizer import soft-fail: {_e}")
+    try:
+        from sentence_recognizer import SentenceRecognizer as _SR
+        mods["SentenceRecognizer"] = _SR
+    except Exception as _e:
+        print(f"[app.py] SentenceRecognizer import soft-fail: {_e}")
     try:
         from sentence_builder import SentenceBuilder as _SB
         mods["SentenceBuilder"] = _SB
@@ -76,12 +81,14 @@ def _install_fallback_page(st_inst):
    ```bash
    python src/preprocess_alphabet.py
    python src/preprocess_words.py
+    python src/preprocess_sentences.py
    ```
 
 4. **Train the models:**
    ```bash
    python src/train_alphabet.py
    python src/train_words.py
+    python src/train_sentences.py
    ```
 
 5. **Restart the app:**
@@ -121,6 +128,15 @@ def _init_session_state(st_inst, src_mods, cfg):
                 st_inst.session_state.word_recognizer = src_mods["WordRecognizer"](seq_len=seq_len)
             except Exception as _e:
                 print(f"[app.py] WordRecognizer init fail: {_e}")
+
+    if "sentence_recognizer" not in st_inst.session_state:
+        st_inst.session_state.sentence_recognizer = None
+        if src_mods["SentenceRecognizer"] is not None:
+            try:
+                seq_len = cfg.SEQUENCE_LENGTH if cfg is not None else 60
+                st_inst.session_state.sentence_recognizer = src_mods["SentenceRecognizer"](seq_len=seq_len)
+            except Exception as _e:
+                print(f"[app.py] SentenceRecognizer init fail: {_e}")
 
     if "sentence_builder" not in st_inst.session_state:
         st_inst.session_state.sentence_builder = None
@@ -178,6 +194,13 @@ def _rebuild_on_param_change(st_inst, src_mods, debounce_frames, seq_len):
         except Exception as _e:
             print(f"[app.py] Rebuild WordRecognizer fail: {_e}")
 
+    sr = st_inst.session_state.sentence_recognizer
+    if sr is not None and getattr(sr, "_seq_len", seq_len) != seq_len and src_mods["SentenceRecognizer"] is not None:
+        try:
+            st_inst.session_state.sentence_recognizer = src_mods["SentenceRecognizer"](seq_len=seq_len)
+        except Exception as _e:
+            print(f"[app.py] Rebuild SentenceRecognizer fail: {_e}")
+
 
 def _sidebar(st_inst):
     cfg = config
@@ -186,7 +209,7 @@ def _sidebar(st_inst):
 
         mode = st_inst.radio(
             "Recognition Mode",
-            ["Alphabet only", "Words only", "Both"],
+            ["Alphabet only", "Words only", "Sentences only", "Both"],
             index=2,
         )
 
@@ -200,6 +223,10 @@ def _sidebar(st_inst):
         word_th = st_inst.slider(
             "Word confidence threshold",
             0.0, 1.0, value=word_th_default, step=0.01,
+        )
+        sentence_th = st_inst.slider(
+            "Sentence confidence threshold",
+            0.0, 1.0, value=(cfg.SENTENCE_THRESHOLD if cfg is not None else 0.80), step=0.01,
         )
 
         debounce_default = 8
@@ -264,6 +291,7 @@ def _sidebar(st_inst):
         "mode": mode,
         "alphabet_th": alphabet_th,
         "word_th": word_th,
+        "sentence_th": sentence_th,
         "debounce_frames": int(debounce_frames),
         "seq_len": int(seq_len),
         "tts_rate": int(tts_rate),
@@ -280,6 +308,7 @@ def _section_webcam(st_inst, settings, cfg):
     ht = st_inst.session_state.hand_tracker
     ar = st_inst.session_state.alphabet_recognizer
     wr = st_inst.session_state.word_recognizer
+    sr = st_inst.session_state.sentence_recognizer
     sb = st_inst.session_state.sentence_builder
     sp = st_inst.session_state.speech_engine
 
@@ -427,6 +456,7 @@ def _section_webcam(st_inst, settings, cfg):
 
             alpha_label, alpha_conf = "", 0.0
             word_label, word_conf = "", 0.0
+            sentence_label, sentence_conf = "", 0.0
 
             # 1. Model-based recognizers
             if settings["mode"] in ("Alphabet only", "Both") and ar is not None:
@@ -442,6 +472,13 @@ def _section_webcam(st_inst, settings, cfg):
                 except Exception as _e:
                     print(f"[app.py] Word predict error: {_e}")
 
+            if settings["mode"] in ("Sentences only", "Both") and sr is not None:
+                try:
+                    sr.update(vec_63)
+                    sentence_label, sentence_conf = sr.predict(threshold=settings["sentence_th"])
+                except Exception as _e:
+                    print(f"[app.py] Sentence predict error: {_e}")
+
             # Use an explicit offline fallback when no trained model exists.
             # Trained model predictions always take precedence.
             if not alpha_label and not word_label and active_gest and conf_val >= 0.70:
@@ -455,7 +492,10 @@ def _section_webcam(st_inst, settings, cfg):
             # Determine best candidate sign in this frame.
             frame_best_sign = ""
             frame_best_conf = 0.0
-            if word_label and word_conf >= settings["word_th"]:
+            if sentence_label and sentence_conf >= settings["sentence_th"]:
+                frame_best_sign = sentence_label
+                frame_best_conf = sentence_conf
+            elif word_label and word_conf >= settings["word_th"]:
                 frame_best_sign = word_label
                 frame_best_conf = word_conf
             elif alpha_label and alpha_conf >= settings["alphabet_th"]:
@@ -529,7 +569,9 @@ def _section_webcam(st_inst, settings, cfg):
             status_info = f"🕒 `{datetime.now().strftime('%H:%M:%S')}` | 🖐️ **Hands: {hands_count}**"
             if current_candidate:
                 status_info += f" | 🎯 Sign: **{current_candidate.upper()}** ({int(candidate_conf * 100)}%)"
-                if ((ar is None or not ar.model_available) and (wr is None or not wr.model_available)):
+                if sr is not None and sr.model_available and " " in current_candidate:
+                    status_info += " | 📝 Sentence model"
+                elif ((ar is None or not ar.model_available) and (wr is None or not wr.model_available)):
                     status_info += " | ℹ️ Rule-based fallback"
                 if hold_progress < 1.0:
                     status_info += f" | ⏳ *Holding {int(hold_progress * 100)}%*"
@@ -555,6 +597,7 @@ def _section_prediction(st_inst, settings):
 
     ar = st_inst.session_state.alphabet_recognizer
     wr = st_inst.session_state.word_recognizer
+    sr = st_inst.session_state.sentence_recognizer
 
     col_a, col_b = st_inst.columns(2)
 
@@ -589,6 +632,10 @@ def _section_prediction(st_inst, settings):
             st_inst.caption(f"{status_txt}")
         else:
             st_inst.markdown(":gray[N/A (mode: Alphabet only)]")
+
+    if settings["mode"] in ("Sentences only", "Both"):
+        sentence_status = sr.status_text if sr is not None else "Sentence model unavailable"
+        st_inst.caption(f"Sentence model: {sentence_status}")
 
 
 def _sentence_text_changed(st_inst):

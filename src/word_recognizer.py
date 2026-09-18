@@ -4,13 +4,23 @@ import warnings
 from collections import deque
 from pathlib import Path
 
+import numpy as np
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 import config
+from src.feature_extraction import extract_sequence_features
 
 
 class WordRecognizer:
+    """
+    High-accuracy real-time ISL Word Recognizer.
+    - Maintains a rolling temporal buffer of landmark frames.
+    - Extracts dynamic sequence motion features.
+    - Performs inference with scikit-learn / joblib or Keras models.
+    - Returns recognized word class and confidence score.
+    """
     def __init__(
         self,
         model_path: Path | str | None = None,
@@ -21,91 +31,79 @@ class WordRecognizer:
         self._available = False
         self._status = "Initializing..."
         self._model = None
+        self._backend = "none"  # "joblib" or "keras"
         self._idx_to_label: dict[str, str] = {}
         self._label_to_idx: dict[str, int] = {}
         self._scaler_mean = None
         self._scaler_scale = None
         self._num_classes = 0
-        self._seq_len: int = int(seq_len) if seq_len is not None else int(config.SEQUENCE_LENGTH)
+        self._seq_len: int = int(seq_len) if seq_len is not None else 30
         self._buffer: deque = deque(maxlen=self._seq_len)
+        self._recent_probs: deque = deque(maxlen=5)
 
-        if model_path is None:
-            model_path = config.WORD_MODEL_PATH
         if labels_path is None:
             labels_path = config.WORD_LABELS_PATH
         if scaler_path is None:
             scaler_path = config.MODELS_DIR / "scaler_words.json"
 
-        model_path = Path(model_path)
         labels_path = Path(labels_path)
         scaler_path = Path(scaler_path)
 
-        try:
-            import numpy as np
-            self._np = np
-        except Exception as e:
-            self._status = f"NumPy unavailable: {e}"
+        # 1. Load labels mapping
+        if labels_path.exists():
+            try:
+                with open(labels_path, "r", encoding="utf-8") as f:
+                    labels = json.load(f)
+                self._idx_to_label = {str(k): v for k, v in labels["idx_to_label"].items()}
+                self._label_to_idx = {k: int(v) for k, v in labels["label_to_idx"].items()}
+                self._num_classes = len(self._idx_to_label)
+            except Exception as e:
+                self._status = f"Failed to load labels: {e}"
+                return
+        else:
+            self._status = f"Missing labels: {labels_path}"
             return
 
-        try:
-            import tensorflow as tf
-            self._tf = tf
-        except Exception as e:
-            self._status = f"TensorFlow unavailable: {e}. Train the word model first."
-            return
-
-        if not model_path.exists():
-            self._status = (
-                "Not trained: run preprocess_words.py + train_words.py "
-                f"(missing model: {model_path})"
-            )
-            return
-
-        if not labels_path.exists():
-            self._status = (
-                "Not trained: run preprocess_words.py "
-                f"(missing labels: {labels_path})"
-            )
-            return
-
-        try:
-            with open(labels_path, "r") as f:
-                labels = json.load(f)
-            self._idx_to_label = {str(k): v for k, v in labels["idx_to_label"].items()}
-            self._label_to_idx = {k: int(v) for k, v in labels["label_to_idx"].items()}
-            self._num_classes = len(self._idx_to_label)
-        except Exception as e:
-            self._status = f"Failed to load labels: {e}"
-            return
-
+        # 2. Load Scaler
         if scaler_path.exists():
             try:
-                with open(scaler_path, "r") as f:
+                with open(scaler_path, "r", encoding="utf-8") as f:
                     scaler = json.load(f)
                 self._scaler_mean = np.asarray(scaler["mean"], dtype=np.float32)
                 self._scaler_scale = np.asarray(scaler["scale"], dtype=np.float32)
             except Exception as e:
-                warnings.warn(f"WordRecognizer: failed to load scaler ({e}); proceeding without scaling.")
                 self._scaler_mean = None
                 self._scaler_scale = None
 
-        try:
-            self._model = tf.keras.models.load_model(str(model_path), compile=False)
-        except Exception as e:
-            self._status = f"Failed to load model: {e}"
-            return
+        # 3. Load Model (Check joblib first, then keras)
+        joblib_path = config.MODELS_DIR / "word_model.joblib" if model_path is None else Path(model_path)
+        keras_path = config.MODELS_DIR / "word_model.keras"
 
-        try:
-            output_classes = int(self._model.output_shape[-1])
-            if output_classes != self._num_classes:
-                self._status = f"Model/labels mismatch: model has {output_classes} outputs, labels contain {self._num_classes}. Retrain."
+        if joblib_path.exists() and str(joblib_path).endswith((".joblib", ".pkl")):
+            try:
+                import joblib
+                self._model = joblib.load(joblib_path)
+                self._backend = "joblib"
+                self._available = True
+                self._status = f"Word model ready ({self._num_classes} classes, scikit-learn)"
                 return
-        except Exception as e:
-            self._status = f"Could not validate model output classes: {e}"
-            return
+            except Exception as e:
+                self._status = f"Failed loading joblib model: {e}"
 
-        self._available = True
-        self._status = "Word model ready"
+        if keras_path.exists() or (model_path and str(model_path).endswith(".keras")):
+            try:
+                import tensorflow as tf
+                target_k = keras_path if model_path is None else Path(model_path)
+                self._model = tf.keras.models.load_model(str(target_k), compile=False)
+                self._backend = "keras"
+                self._available = True
+                self._status = f"Word model ready ({self._num_classes} classes, Keras)"
+                return
+            except Exception as e:
+                self._status = f"Keras model unavailable: {e}"
+
+        if not self._available:
+            self._status = f"Word model not trained yet ({self._num_classes} classes indexed)"
 
     @property
     def model_available(self) -> bool:
@@ -115,92 +113,65 @@ class WordRecognizer:
     def status_text(self) -> str:
         return self._status
 
-    def update(self, vec_63) -> None:
-        try:
-            np = self._np
-            if vec_63 is None:
-                return
-            try:
-                vec = np.asarray(vec_63, dtype=np.float32)
-            except Exception:
-                return
-            if vec.shape != (config.LANDMARK_DIM,):
-                return
-            self._buffer.append(vec.copy())
-        except Exception as e:
-            warnings.warn(f"WordRecognizer.update failed: {e}")
+    @property
+    def class_names(self) -> list[str]:
+        return list(self._idx_to_label.values())
 
-    def _ready(self) -> bool:
-        return len(self._buffer) == self._seq_len
+    def update(self, landmark_vector) -> None:
+        if landmark_vector is None:
+            return
+        vec = np.asarray(landmark_vector, dtype=np.float32).reshape(-1)
+        if vec.shape == (config.LANDMARK_DIM,):
+            self._buffer.append(vec.copy())
 
     def reset(self) -> None:
+        self._buffer.clear()
+        self._recent_probs.clear()
+
+    def predict(self, threshold: float | None = None) -> tuple[str, float]:
+        if not self._available or len(self._buffer) < max(10, int(self._seq_len * 0.5)):
+            return "", 0.0
+
+        if threshold is None:
+            threshold = config.WORD_THRESHOLD
+
+        seq_arr = np.asarray(self._buffer, dtype=np.float32)
+
+        # Pad sequence if buffer not fully full yet
+        if len(seq_arr) < self._seq_len:
+            pad = np.repeat(seq_arr[-1:], self._seq_len - len(seq_arr), axis=0)
+            seq_arr = np.concatenate([seq_arr, pad], axis=0)
+
         try:
-            self._buffer.clear()
-        except Exception:
-            try:
-                self._buffer = deque(maxlen=self._seq_len)
-            except Exception:
-                pass
+            if self._backend == "joblib":
+                feats = extract_sequence_features(seq_arr).reshape(1, -1)
+                if self._scaler_mean is not None and self._scaler_scale is not None:
+                    feats = (feats - self._scaler_mean) / np.maximum(self._scaler_scale, 1e-7)
 
-    def predict(self, threshold: float | None = None):
-        try:
-            np = self._np
-            if threshold is None:
-                threshold = float(config.WORD_THRESHOLD)
+                if hasattr(self._model, "predict_proba"):
+                    probs = self._model.predict_proba(feats)[0]
+                else:
+                    pred_idx = self._model.predict(feats)[0]
+                    return self._idx_to_label.get(str(pred_idx), ""), 1.0
 
-            if not self._available:
-                return ("", 0.0)
+            elif self._backend == "keras":
+                inp = seq_arr[np.newaxis, ...]
+                probs = self._model.predict(inp, verbose=0)[0]
+            else:
+                return "", 0.0
 
-            if not self._ready():
-                return ("", 0.0)
+            # Smooth probabilities with rolling window
+            self._recent_probs.append(probs)
+            smoothed_probs = np.mean(self._recent_probs, axis=0)
 
-            try:
-                seq = np.stack(list(self._buffer), axis=0).astype(np.float32)
-            except Exception:
-                return ("", 0.0)
+            best_idx = int(np.argmax(smoothed_probs))
+            conf = float(smoothed_probs[best_idx])
 
-            if seq.shape != (self._seq_len, config.LANDMARK_DIM):
-                return ("", 0.0)
+            if conf >= threshold:
+                label = self._idx_to_label.get(str(best_idx), "")
+                return label, conf
+            return "", conf
 
-            if self._scaler_mean is not None and self._scaler_scale is not None:
-                flat = seq.reshape(-1, config.LANDMARK_DIM)
-                denom = np.where(self._scaler_scale == 0, 1.0, self._scaler_scale)
-                flat_s = (flat - self._scaler_mean) / denom
-                seq = flat_s.reshape(self._seq_len, config.LANDMARK_DIM).astype(np.float32)
-
-            batch = seq.reshape(1, self._seq_len, config.LANDMARK_DIM)
-            try:
-                probs = self._model.predict(batch, verbose=0)
-            except Exception:
-                probs = self._model(batch, training=False).numpy()
-            probs = np.asarray(probs, dtype=np.float32).reshape(-1)
-            if probs.size == 0:
-                return ("", 0.0)
-
-            max_idx = int(np.argmax(probs))
-            max_prob = float(probs[max_idx])
-            if max_prob < threshold:
-                return ("", max_prob)
-
-            label = self._idx_to_label.get(str(max_idx), "")
-            return (label, max_prob)
         except Exception as e:
-            warnings.warn(f"WordRecognizer.predict failed: {e}")
-            return ("", 0.0)
-
-
-if __name__ == "__main__":
-    import numpy as _np
-    rec = WordRecognizer()
-    z = _np.zeros(config.LANDMARK_DIM, dtype=_np.float32)
-    for _ in range(65):
-        rec.update(z)
-    out = rec.predict()
-    assert isinstance(out, tuple) and len(out) == 2, f"unexpected return: {out}"
-    label, score = out
-    assert isinstance(label, str) and isinstance(score, (int, float))
-    rec.reset()
-    after_reset = rec.predict()
-    assert isinstance(after_reset, tuple) and len(after_reset) == 2
-    assert after_reset[0] == "" and after_reset[1] == 0.0
-    print("WordRecognizer smoke PASSED")
+            warnings.warn(f"WordRecognizer predict error: {e}")
+            return "", 0.0

@@ -1,0 +1,172 @@
+﻿python : INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
+At line:1 char:29
++ & { cd d:\ISL-Sign2Speech ; python _deep_diagnose.py 2>&1 | Out-File  ...
++                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO: Created T...legate for CPU. 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+W0000 00:00:1789838192.683475   15424 inference_feedback_manager.cc:121] 
+Feedback manager requires a model with a single signature inference. Disabling 
+support for feedback tensors.
+W0000 00:00:1789838192.695457   27320 inference_feedback_manager.cc:121] 
+Feedback manager requires a model with a single signature inference. Disabling 
+support for feedback tensors.
+
+========================================================================
+  1. DATASET + EXTRACTED LANDMARKS VALIDITY
+========================================================================
+Dataset words dir: D:\ISL-Sign2Speech\dataset\words  exists=True
+Landmarks dir: D:\ISL-Sign2Speech\data\landmarks  exists=True
+
+WORDS LANDMARKS:
+  X:       (1047, 30, 63)  dtype=float32
+  y:       (1047,)  unique=114  min=0 max=113
+  X_train: (837, 30, 63)  y_train: (837,)  uniq=114
+  X_val:   (210, 30, 63)  y_val:   (210,)  uniq=113
+
+SENTENCES LANDMARKS:
+  X:       (687, 30, 63)  dtype=float32
+  y:       (687,)  unique=101  min=0 max=100
+  X_train: (549, 30, 63)  y_train: (549,)  uniq=101
+  X_val:   (138, 30, 63)  y_val:   (138,)  uniq=82
+
+  words_X                nan=     0  inf=     0  all-zero-samples=   0  mean(|x|)=0.04449
+
+  words_X_train          nan=     0  inf=     0  all-zero-samples=   0  mean(|x|)=0.04457
+
+  words_X_val            nan=     0  inf=     0  all-zero-samples=   0  mean(|x|)=0.04419
+
+  sentences_X            nan=     0  inf=     0  all-zero-samples=   0  mean(|x|)=0.03644
+
+  sentences_X_train      nan=     0  inf=     0  all-zero-samples=   0  mean(|x|)=0.03599
+
+  sentences_X_val        nan=     0  inf=     0  all-zero-samples=   0  mean(|x|)=0.03824
+
+  Word classes in val but NOT in train: 0  -> []
+  Sentence classes in val but NOT in train: 0  -> []
+
+  Word samples per class: min=2  max=107  mean=9.2  classes_with_<2_samples=0
+  Sentence samples per class: min=1  max=9  mean=6.8  classes_with_<2_samples=2
+
+========================================================================
+  2. LABELS CONSISTENCY CHECK
+========================================================================
+labels_word.json:  idx_to_label entries=114  label_to_idx entries=114
+labels_sentences.json: idx_to_label entries=101  label_to_idx entries=101
+dataset_info.json: expected words=114  sentences=101
+word y unique: 114  expected from labels_word: 114
+sentence y unique: 101  expected from labels_sentences: 101
+
+Word classes in dataset_info but MISSING from labels_word.json: 0
+Word classes EXTRA in labels_word.json (not in dataset_info): 0
+
+Sentences in dataset_info but MISSING from labels_sentences.json: 0
+Sentences EXTRA in labels_sentences.json (not in dataset_info): 0
+
+========================================================================
+  3. MODEL INTEGRITY + INFERENCE ON TRAIN/VAL DATA
+========================================================================
+
+WORD MODEL:
+  model file exists=True  size=97546457
+  scaler file exists=True  size=39971
+
+SENTENCE MODEL:
+  model file exists=True  size=5734145
+  scaler file exists=True  size=39212
+
+--- WORD model direct inference ---
+  Random 200 TRAIN samples: acc = 99.50%  (labels match = 199/200)
+  WORD VAL FULL (210 samples): acc=33.81%  avg_top_conf=0.328  med_top_conf=0.213  min_top_conf=0.067
+  Top 5 correct word predictions (val set):
+    #1 true=I_ME_MINE_MY  conf=0.973
+    #2 true=YOU  conf=0.973
+    #3 true=YOU  conf=0.953
+    #4 true=I_ME_MINE_MY  conf=0.953
+    #5 true=I_ME_MINE_MY  conf=0.947
+
+--- SENTENCE model direct inference ---
+  SENTENCE TRAIN acc=90.35%  VAL acc=5.80%  avg_top_val_conf=0.488
+
+========================================================================
+  4. RECOGNIZERS (WordRecognizer + SentenceRecognizer) LOAD + INFERENCE
+========================================================================
+WordRecognizer: available=True  status=Word model ready (114 classes, scikit-learn)  seq_len=30  buffer_maxlen=30
+SentenceRecognizer: available=True  status=Sentence model ready (101 classes, scikit-learn)  seq_len=30  buffer_maxlen=30
+  WR seq#0: true=SOMETHING  pred=SOMETHING  conf=0.940  match=True
+  WR seq#1: true=TAKE CARE  pred=TAKE CARE  conf=0.733  match=True
+  WR seq#2: true=MEAN IT  pred=MEAN IT  conf=0.773  match=True
+  WR seq#3: true=HOW  pred=HOW  conf=0.680  match=True
+  WR seq#4: true=NICE  pred=NICE  conf=0.773  match=True
+  WR seq#5: true=YOU  pred=YOU  conf=0.693  match=True
+  WR seq#6: true=SLEEP  pred=SLEEP  conf=0.627  match=True
+  WR seq#7: true=BECOME  pred=BECOME  conf=0.687  match=True
+  WR seq#8: true=TIRED  pred=TIRED  conf=0.600  match=True
+  WR seq#9: true=MEET  pred=MEET  conf=0.613  match=True
+  SR seq#0: true=i am sitting in the class  pred=i am sitting in the class  conf=0.988  match=True
+  SR seq#1: true=do you need something  pred=do you need something  conf=0.995  match=True
+  SR seq#2: true=do not hurt me  pred=do not hurt me  conf=0.984  match=True
+  SR seq#3: true=could you please talk slower  pred=could you please talk slower  conf=0.982  match=True
+  SR seq#4: true=i am afraid of that  pred=i am afraid of that  conf=0.983  match=True
+
+Recognizer end-to-end matches (TRAIN sequences): WORDS 10/10   SENTENCES 5/5
+
+CRITICAL SEQ_LEN ALIGNMENT CHECK:
+  Preprocessed data seq_len (words_X_train.shape[1]) = 30
+  config.SEQUENCE_LENGTH = 30
+  WordRecognizer._seq_len = 30
+  SentenceRecognizer._seq_len = 30
+  MATCH: True
+
+========================================================================
+  5. WordRecognizer PREDICT vs DIRECT joblib PREDICT MATCH
+========================================================================
+  WR vs direct-joblib mismatches (first 20 val): 0/20
+
+========================================================================
+  6. SENTENCE BUILDER + GLOSS MAPPING
+========================================================================
+gloss_to_sentence.json: exists=True
+  gloss entries: 104
+  gloss[YOU FREE TODAY] => are you free today
+  gloss[YOU HIDE SOMETHING] => are you hiding something
+  gloss[BRING WATER ME] => bring water for me
+  gloss[I HELP YOU] => can i help you
+  gloss[YOU REPEAT PLEASE] => can you repeat that please
+
+SentenceBuilder output for known ISL sequences:
+  tokens=['HELLO_HI', 'HOW', 'YOU']  =>  "Hello How are you?"  (contains 'how are you' = True)
+  tokens=['YOU', 'FREE', 'TODAY']  =>  "Are you free today"  (contains 'free today' = True)
+  tokens=['HELP', 'ME']  =>  "Help me"  (contains 'help me' = True)
+  tokens=['I', 'NEED', 'WATER']  =>  "I need water"  (contains 'need water' = True)
+  tokens=['NICE', 'MEET', 'YOU']  =>  "Nice to meet you"  (contains 'nice to meet you' = True)
+
+========================================================================
+  7. SPEECH ENGINE (pyttsx3)
+========================================================================
+Speech engine: available=True
+  speak('Test.', block=False) returned: True  (no exception = PASS)
+
+========================================================================
+  8. HAND TRACKER + FULL LIVE PIPELINE (simulated)
+========================================================================
+HandTracker instantiated OK. last_num_hands=0
+
+Simulating 60 frames of continuous gestures:
+  frame# 14: CONFIRMED word=SOMETHING conf=0.46  sentence="Something."
+  frame# 16: CONFIRMED word=SOMETHING conf=0.44  sentence="Something Something."
+  frame# 18: CONFIRMED word=SOMETHING conf=0.44  sentence="Something Something Something."
+  frame# 20: CONFIRMED word=SOMETHING conf=0.40  sentence="Something Something Something Something."
+  frame# 22: CONFIRMED word=SOMETHING conf=0.40  sentence="Something Something Something Something Something."
+  frame# 24: CONFIRMED word=SOMETHING conf=0.38  sentence="Something Something Something Something Something Something."
+  frame# 26: CONFIRMED word=SOMETHING conf=0.39  sentence="Something Something Something Something Something Something Something."
+  frame# 28: CONFIRMED word=SOMETHING conf=0.38  sentence="Something Something Something Something Something Something Something Something."
+  frame# 30: CONFIRMED word=SOMETHING conf=0.35  sentence="Something Something Something Something Something Something Something Something Something."
+  frame# 54: CONFIRMED word=SOMETHING conf=0.30  sentence="Something Something Something Something Something Something Something Something Something Something."
+
+After 60 simulated frames: 10 tokens confirmed  sentence="Something Something Something Something Something Something Something Something Something Something."
+
+========================================================================
+  DIAGNOSTIC RUN COMPLETE.
+========================================================================

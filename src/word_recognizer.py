@@ -39,7 +39,9 @@ class WordRecognizer:
         self._num_classes = 0
         self._seq_len: int = int(seq_len) if seq_len is not None else 30
         self._buffer: deque = deque(maxlen=self._seq_len)
-        self._recent_probs: deque = deque(maxlen=5)
+        self._recent_probs: deque = deque(maxlen=7)
+        self._last_predicted_idx: int | None = None
+        self._last_predicted_streak: int = 0
 
         if labels_path is None:
             labels_path = config.WORD_LABELS_PATH
@@ -71,7 +73,7 @@ class WordRecognizer:
                     scaler = json.load(f)
                 self._scaler_mean = np.asarray(scaler["mean"], dtype=np.float32)
                 self._scaler_scale = np.asarray(scaler["scale"], dtype=np.float32)
-            except Exception as e:
+            except Exception:
                 self._scaler_mean = None
                 self._scaler_scale = None
 
@@ -127,9 +129,11 @@ class WordRecognizer:
     def reset(self) -> None:
         self._buffer.clear()
         self._recent_probs.clear()
+        self._last_predicted_idx = None
+        self._last_predicted_streak = 0
 
-    def predict(self, threshold: float | None = None) -> tuple[str, float]:
-        if not self._available or len(self._buffer) < max(10, int(self._seq_len * 0.5)):
+    def predict(self, threshold: float | None = None, streak_threshold: int = 3, return_all: bool = False) -> tuple[str, float]:
+        if not self._available or len(self._buffer) < max(8, int(self._seq_len * 0.27)):
             return "", 0.0
 
         if threshold is None:
@@ -143,6 +147,7 @@ class WordRecognizer:
             seq_arr = np.concatenate([seq_arr, pad], axis=0)
 
         try:
+            probs = None
             if self._backend == "joblib":
                 feats = extract_sequence_features(seq_arr).reshape(1, -1)
                 if self._scaler_mean is not None and self._scaler_scale is not None:
@@ -167,7 +172,17 @@ class WordRecognizer:
             best_idx = int(np.argmax(smoothed_probs))
             conf = float(smoothed_probs[best_idx])
 
-            if conf >= threshold:
+            # Streak tracking: suppress flip only when consistent prediction occurs for N consecutive updates.
+            if self._last_predicted_idx == best_idx:
+                self._last_predicted_streak += 1
+            else:
+                self._last_predicted_idx = best_idx
+                self._last_predicted_streak = 1
+
+            if conf >= threshold and self._last_predicted_streak >= streak_threshold:
+                label = self._idx_to_label.get(str(best_idx), "")
+                return label, conf
+            if return_all:
                 label = self._idx_to_label.get(str(best_idx), "")
                 return label, conf
             return "", conf

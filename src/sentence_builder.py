@@ -126,6 +126,12 @@ class SentenceBuilder:
         self._frame_counter += 1
         normalized = self._normalize_token(token)
         last_seen = self._last_token_frames.get(normalized)
+        last_token_normalized = self._raw_tokens[-1] if self._raw_tokens else None
+
+        # Anti-repetition: never allow the same token as the last appended one (consecutive duplicate suppression).
+        if last_token_normalized is not None and last_token_normalized == normalized:
+            self._last_token_frames[normalized] = self._frame_counter
+            return False
 
         # Check debounce: must be distinct token or separated by debounce_frames
         if last_seen is None or (self._frame_counter - last_seen) > self._debounce_frames:

@@ -69,12 +69,14 @@ def dataset_summary(root: Path) -> dict[str, int]:
 
 
 def model_summary() -> dict[str, bool]:
+    word_joblib = config.MODELS_DIR / "word_model.joblib"
+    sent_joblib = config.MODELS_DIR / "sentence_model.joblib"
     return {
         "alphabet_model": config.ALPHABET_MODEL_PATH.is_file(),
-        "word_model": config.WORD_MODEL_PATH.is_file(),
+        "word_model": config.WORD_MODEL_PATH.is_file() or word_joblib.is_file(),
         "labels_alphabet": config.ALPHABET_LABELS_PATH.is_file(),
         "labels_word": config.WORD_LABELS_PATH.is_file(),
-        "sentence_model": config.SENTENCE_MODEL_PATH.is_file(),
+        "sentence_model": config.SENTENCE_MODEL_PATH.is_file() or sent_joblib.is_file(),
         "labels_sentences": config.SENTENCE_LABELS_PATH.is_file(),
     }
 

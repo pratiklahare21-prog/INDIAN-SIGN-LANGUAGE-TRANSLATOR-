@@ -1,0 +1,12 @@
+# Backend dependencies for ML models, training, and recognition
+tensorflow==2.16.1
+opencv-python==4.10.0.84
+mediapipe==0.10.14
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.1
+pyttsx3==2.90
+Pillow==10.4.0
+tqdm==4.66.4
+matplotlib==3.9.1
+joblib==1.4.2

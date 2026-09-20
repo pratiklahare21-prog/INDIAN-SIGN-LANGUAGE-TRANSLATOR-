@@ -1,55 +1,20 @@
 # ISL Sign2Speech
 
 Real-time Indian Sign Language (ISL) recognition pipeline that translates hand signs into sentences and speaks them aloud.
-Runs entirely **local and offline** on your Windows PC — built with MediaPipe Hands, a Word LSTM + Alphabet MLP, and a Streamlit web UI.
+Runs entirely **local and offline** on your Windows PC — built with MediaPipe Hands, ML models, and a Streamlit web UI.
+
+**Now refactored with separate frontend and backend directories for better code organization!**
 
 ---
 
 ## 🎯 Features
 
-- **A–Z Fingerspelling Recognition** — static hand poses for every letter via a trained MLP classifier.
-- **Dataset-derived ISL words and sentences** — class names and count come from the media folders actually found. The bundled ISL-CSLRT corpus supplies sentence videos; WLASL is ASL and is not mislabeled as ISL.
-- **Sentence Builder** — tap to append recognized words/letters, edit on the fly, auto-space tokens.
-- **Text-to-Speech (TTS)** — one-click `pyttsx3` (SAPI5 on Windows) reads the full sentence aloud.
-- **Live Webcam Feed** — low-latency OpenCV capture with MediaPipe landmark overlay drawn in-browser.
-- **Prediction History** — last N predictions with per-class confidence logged to the sidebar.
-- **Confidence Thresholds** — adjustable `WORD_THRESHOLD` and `ALPHABET_THRESHOLD` sliders to suppress jitter.
-- **Offline / Privacy-Focused** — no cloud calls, no telemetry; video frames never leave your machine.
-
----
-
-## 🧱 Architecture
-
-```
-                     ┌──────────────────────────────┐
-  Webcam / Video  ──►│  MediaPipe Hands (per frame) ├──► 63-d landmark vector (x,y,z × 21)
-                     └───────────┬──────────────────┘
-                                 │
-              ┌──────────────────┴────────────────────┐
-              │                                       │
-              ▼                                       ▼
-   ┌──────────────────────┐              ┌──────────────────────────┐
-   │  Alphabet MLP        │              │  Word LSTM (sequence)    │
-   │  (single-frame,      │              │  (60-frame window,       │
-   │   26 classes)        │              │   bidirectional, 60 cls) │
-   └──────────┬───────────┘              └────────────┬─────────────┘
-              │                                       │
-              └──────────────────┬────────────────────┘
-                                 ▼
-                     ┌──────────────────────┐
-                     │   SentenceBuilder    │  (debounce, dedupe,
-                     └──────────┬───────────┘   confidence gating,
-                                │               history buffer)
-                                ▼
-                     ┌──────────────────────┐
-                     │  pyttsx3 Speech      │  (SAPI5 voices,
-                     └──────────────────────┘   rate/volume tunable)
-```
-
-**Input pipeline detail:**
-- 21 hand landmarks × 3 coordinates (x, y, z) = **63 floats per frame**.
-- Alphabet model consumes a single 63-d vector (static image).
-- Word model consumes a fixed-length sequence of `SEQUENCE_LENGTH=60` frames × 63-d.
+- **A–Z Fingerspelling Recognition** — static hand poses for every letter
+- **Dataset-derived ISL words and sentences** — trained on real ISL video data
+- **Sentence Builder** — append recognized words/letters, edit on the fly
+- **Text-to-Speech (TTS)** — speaks the full sentence aloud
+- **Live Webcam Feed** — low-latency OpenCV capture with MediaPipe landmarks
+- **Offline / Privacy-Focused** — no cloud calls, video stays on your machine
 
 ---
 
@@ -58,305 +23,334 @@ Runs entirely **local and offline** on your Windows PC — built with MediaPipe 
 | Item | Required |
 |---|---|
 | **OS** | Windows 10 or Windows 11 (64-bit) |
-| **Python** | 3.10, 3.11, or 3.12 — **NOT 3.13+** (TensorFlow 2.16 has no 3.13 wheels) |
-| **Hardware** | Working webcam (internal USB or external) |
-| **Audio** | Speakers / headphones for TTS output |
-| **Disk** | ~4 GB free for the Kaggle word dataset + ~500 MB for PyPI packages |
-| **RAM** | 8 GB minimum (16 GB recommended for training) |
+| **Python** | 3.10, 3.11, or 3.12 — **NOT 3.13+** |
+| **Hardware** | Working webcam |
+| **Audio** | Speakers / headphones for TTS |
+| **Disk** | ~4 GB free for datasets + ~500 MB for packages |
+| **RAM** | 8 GB minimum (16 GB recommended) |
 
 ---
 
-## 🚀 Step-by-Step Setup
+## 🚀 Quick Start
 
-### Step 1 — Clone / navigate to the repo
+### 1. Clone the repository
 
 ```bat
 git clone <your-repo-url>
-cd d:\ISL-Sign2Speech
+cd ISL-Sign2Speech
 ```
 
-If you already have the folder locally just `cd d:\ISL-Sign2Speech`.
-
-### Step 2 — Create and activate a virtual environment
+### 2. Install Backend Dependencies
 
 ```bat
+cd backend
 python -m venv venv
 venv\Scripts\activate
-```
-
-Your prompt should now start with `(venv)`.
-
-### Step 3 — Install Python dependencies
-
-```bat
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-This installs TensorFlow 2.16, MediaPipe 0.10.14, OpenCV, Streamlit, pyttsx3, sklearn, tqdm, matplotlib, and friends.
-
-### Step 4 — Download the word (video) dataset
-
-Grab the 60-class ISL video dataset from Kaggle:
-
-👉 **https://www.kaggle.com/datasets/prasadshet/indian-sign-language-video-dataset** (~3.48 GB)
-
-Extract the ZIP so that each class lives in its own folder. The final layout **must** be:
-
-```
-dataset\
-  words\
-    <ClassName1>\
-      001.mp4
-      002.mp4
-      ...
-    <ClassName2>\
-      001.mp4
-      ...
-```
-
-**Class names rule:** the subfolder names become class labels — keep them as-is. (If the Kaggle zip contains a top-level folder like `Indian Sign Language Video Dataset/`, move the per-class folders up so they are direct children of `dataset\words\`.)
-
-Expected ~60 class subfolders total. You do **not** need to list or rename them.
-
-### Step 5 — Prepare the alphabet (image) dataset
-
-Put **at least 10 JPG or PNG images per letter** under letter-named folders:
-
-```
-dataset\
-  alphabet\
-    A\  img1.jpg  img2.png  ...
-    B\  img1.jpg  ...
-    ...
-    Z\  ...
-```
-
-**Three ways to get alphabet data (pick one):**
-1. **Shoot your own** — hold up each ISL letter under normal room lighting, ~30+ images per letter works best.
-2. **Reuse the word dataset** — if the Kaggle word download already contains per-letter A–Z folders, copy/move them under `dataset\alphabet\`.
-3. **Download a public ISL alphabet image dataset** — search Kaggle for "Indian Sign Language alphabet images", download, and drop the 26 class folders into `dataset\alphabet\`.
-
-### Step 6 — Preprocess data and train models
-
-Run each command in order from the repo root (with venv active):
+### 3. Install Frontend Dependencies
 
 ```bat
+cd ..\frontend
+python -m venv venv
+venv\Scripts\activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 4. Download the Dataset
+
+Download the ISL video dataset from Kaggle:
+👉 **https://www.kaggle.com/datasets/prasadshet/indian-sign-language-video-dataset**
+
+Extract and place in `backend\dataset\words\` so the structure is:
+
+```
+backend\
+  dataset\
+    words\
+      <ClassName1>\
+        001.mp4
+        002.mp4
+        ...
+      <ClassName2>\
+        ...
+```
+
+### 5. Preprocess & Train Models
+
+```bat
+cd backend
+venv\Scripts\activate
+
+:: Run preprocessing
 python src\preprocess_alphabet.py
-python src\train_alphabet.py
-
 python src\preprocess_words.py
-python src\train_words.py
-
 python src\preprocess_sentences.py
+
+:: Train models
+python src\train_alphabet.py
+python src\train_words.py
 python src\train_sentences.py
 ```
 
-The bundled corpus is read from `archive\ISL_CSLRT_Corpus\...\Videos_Sentence_Level\` and produces complete sentence labels from its folder names. The sentence model is temporal; it is not trained by repeating a still image.
-
-**What each step produces:**
-
-| Step | Outputs |
-|---|---|
-| `preprocess_alphabet.py` | `data\landmarks\alphabet_X.npy`, `alphabet_y.npy`, `alphabet_X_train.npy`, `alphabet_X_val.npy`, etc. + `models\labels_alphabet.json` |
-| `train_alphabet.py`     | `models\alphabet_model.keras`, `models\alphabet_model_best.keras`, `models\scaler_alphabet.json`, `data\training_log_alphabet.csv`, `models\alphabet_training_curves.png` |
-| `preprocess_words.py`   | `data\landmarks\words_X.npy`, `words_y.npy`, `words_X_train.npy`, `words_X_val.npy`, etc. + `models\labels_word.json` |
-| `train_words.py`        | `models\word_model.keras`, `models\word_model_best.keras`, `models\scaler_words.json`, `data\training_log_words.csv`, `models\word_training_curves.png` |
-
-**Smoke (quick) training flag.** For a fast end-to-end check you can pass `--quick` to the trainers. It caps samples and runs only 1 epoch — great for verifying the pipeline before a full overnight train:
-
+**Quick preprocessing and training:**
 ```bat
-python src\train_alphabet.py --quick
-python src\train_words.py --quick
+cd backend
+preprocess_all.bat
+train_all.bat
 ```
 
-You can also override epochs directly, e.g. `python src\train_words.py --epochs 120`.
-
-### Step 7 — Launch the app
-
-Either (easy mode):
+### 6. Start the Frontend
 
 ```bat
-run.bat
-```
-
-Or manually (venv must be active):
-
-```bat
+cd frontend
+venv\Scripts\activate
 streamlit run app.py
 ```
 
-A browser tab should open at `http://localhost:8501/` showing the webcam UI.
+**Or use the convenient launcher:**
+```bat
+cd frontend
+start.bat
+```
+
+The app will open at `http://localhost:8501/`
 
 ---
 
-## ▶️ What run.bat does (one-click launcher)
+## 📁 Project Structure
 
-Double-clicking `run.bat` or running it from cmd performs **all of these in order**:
-
-1. **Checks Python on PATH** — bails with a clear error if `python.exe` is missing, and warns if the version is outside 3.10–3.12.
-2. **Auto-creates `venv\`** — runs `python -m venv venv` only if `venv\Scripts\python.exe` is absent.
-3. **Activates the venv** — calls `venv\Scripts\activate.bat` for the rest of the script.
-4. **Upgrades pip + installs packages** — `pip install -r requirements.txt` (idempotent; skips if all pinned versions already installed).
-5. **Runs `setup\check_env.py`** — prints a colourful environment / dataset / model summary.
-6. **Auto-trains alphabet if needed** — if `models\alphabet_model.keras` is missing **and** `dataset\alphabet\` exists, runs `preprocess_alphabet.py` then `train_alphabet.py --quick`.
-7. **Auto-trains words if needed** — if `models\word_model.keras` is missing **and** `dataset\words\` exists, runs `preprocess_words.py` then `train_words.py --quick`.
-8. **Launches Streamlit** — `streamlit run app.py`, then `pause` at the end so you can read any errors.
-
-> **Tip:** auto-train uses `--quick`. When you are ready for a real model, run the train commands manually **without** `--quick`.
+```
+ISL-Sign2Speech\
+├── frontend\                       # Streamlit UI application
+│   ├── app.py                     # Main Streamlit app
+│   ├── requirements.txt           # Frontend dependencies
+│   ├── start.bat                  # Windows launcher script
+│   └── src\                       # Frontend components (if any)
+│
+├── backend\                        # ML models, training, and core logic
+│   ├── config.py                  # Configuration and paths
+│   ├── requirements.txt           # Backend dependencies
+│   ├── preprocess_all.bat         # Preprocess all datasets
+│   ├── train_all.bat              # Train all models
+│   │
+│   ├── src\                       # Backend source code
+│   │   ├── hand_tracker.py       # MediaPipe hands wrapper
+│   │   ├── alphabet_recognizer.py # Alphabet model
+│   │   ├── word_recognizer.py    # Word sequence model
+│   │   ├── sentence_recognizer.py # Sentence model
+│   │   ├── sentence_builder.py   # Token management
+│   │   ├── speech.py             # TTS engine
+│   │   ├── feature_extraction.py # Feature utilities
+│   │   ├── gesture_rules.py      # Rule-based recognition
+│   │   ├── preprocess_*.py       # Data preprocessing scripts
+│   │   └── train_*.py            # Model training scripts
+│   │
+│   ├── models\                    # Trained model files
+│   │   ├── *.keras / *.joblib    # Model weights
+│   │   ├── labels_*.json         # Class mappings
+│   │   └── scaler_*.json         # Normalization parameters
+│   │
+│   ├── data\                      # Processed landmarks
+│   │   └── landmarks\            # Preprocessed .npy arrays
+│   │
+│   ├── dataset\                   # Raw training data
+│   │   ├── alphabet\             # A-Z images
+│   │   ├── words\                # Word videos
+│   │   └── sentences\            # Sentence videos
+│   │
+│   └── archive\                   # ISL-CSLRT corpus (if present)
+│
+├── README.md                       # This file
+└── .gitignore
+```
 
 ---
 
-## 🔧 CLI Cheatsheet
+## 🔧 Development Workflow
 
-| Script | Purpose | Common flags |
-|---|---|---|
-| `python src\preprocess_alphabet.py` | Reads A–Z images from `dataset\alphabet\`, runs MediaPipe Hands per image, splits and saves 63-d landmark `.npy` arrays + `labels_alphabet.json`. | `--data-dir` (override alphabet root), `--out-dir` (override landmark folder), `--labels-path` (override label JSON path) |
-| `python src\preprocess_words.py`   | Reads per-class MP4s from `dataset\words\`, samples 60 frames/video, runs MediaPipe, saves 60×63 landmark sequences + `labels_word.json`. | `--data-dir`, `--out-dir`, `--labels-path`, `--seq-len N` (change sequence length, default 60) |
-| `python src\train_alphabet.py`     | Loads precomputed alphabet landmarks, trains an MLP classifier, saves `.keras` model + StandardScaler JSON + training curves PNG + CSV log. | `--epochs N` (override max epochs, default 50), `--quick` (1 epoch / 200 train / 50 val), `--landmarks-dir`, `--labels-path`, `--model-out` |
-| `python src\train_words.py`        | Loads precomputed word landmark sequences, trains a Bidirectional LSTM, saves `.keras` model + scaler + curves + CSV log. | `--epochs N` (default 80), `--quick` (1 epoch / 100 train / 25 val), `--landmarks-dir`, `--labels-path`, `--model-out` |
-| `python setup\check_env.py`        | No-op diagnostic. Verifies Python version (3.10–3.12), required packages, creates missing folders, counts alphabet/word dataset classes, checks for 4 model files, then prints recommended "Next steps". | (no flags) |
-| `streamlit run app.py`             | Starts the Streamlit web UI at `http://localhost:8501/`. Loads both trained models, the HandTracker, SentenceBuilder, and pyttsx3 engine. | Streamlit flags: `--server.port 8501`, `--server.headless true`, `--server.address 127.0.0.1` |
+### Backend Development
+
+```bat
+cd backend
+venv\Scripts\activate
+
+:: Preprocess data
+python src\preprocess_words.py
+
+:: Train a model
+python src\train_words.py --epochs 100
+
+:: Test a recognizer
+python src\word_recognizer.py
+```
+
+### Frontend Development
+
+```bat
+cd frontend
+venv\Scripts\activate
+
+:: Run the UI
+streamlit run app.py
+
+:: Or use the launcher
+start.bat
+```
+
+---
+
+## 🧱 Architecture
+
+The application follows a modular architecture:
+
+**Frontend (Streamlit)**
+- User interface and webcam interaction
+- Real-time video display
+- Settings and controls
+- Sentence editing and TTS playback
+
+**Backend (Python ML)**
+- MediaPipe hand tracking
+- ML model inference (alphabet, word, sentence)
+- Feature extraction and preprocessing
+- Data pipeline and training scripts
+
+**Data Flow:**
+```
+Webcam → MediaPipe → 63-d landmarks → Models → Predictions → UI → TTS
+```
 
 ---
 
 ## 🤔 Troubleshooting
 
-- **TensorFlow install fails on Windows**
-  → Use Python 3.10–3.12 (NOT 3.13+). Install the [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). If still failing: try `pip install tensorflow-cpu==2.16.1`, or install TensorFlow via Conda (`conda install tensorflow=2.16`).
+### Backend Issues
 
-- **OpenCV VideoCapture returns None / webcam blank in the UI**
-  → Change `WEBCAM_INDEX` in `config.py` from 0 to 1 or 2. Grant camera permission to the terminal/IDE (Windows Settings → Privacy & security → Camera). Close any app holding the webcam (Zoom, Teams, OBS, Chrome tabs using camera).
+**TensorFlow install fails**
+- Use Python 3.10–3.12 (NOT 3.13+)
+- Install [VC++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 
-- **MediaPipe not finding hands (no landmarks drawn, predictions all 0)**
-  → Ensure a plain background, even lighting, and your palm is facing the camera. Raise `min_detection_confidence` / `min_tracking_confidence` in `src\hand_tracker.py`'s `HandTracker` constructor if needed (defaults are usually fine).
+**Models not loading**
+- Ensure you've run all preprocessing and training scripts
+- Check that `backend/models/` contains `.joblib` or `.keras` files
 
-- **pyttsx3 fails / no audio on Windows**
-  → Make sure SAPI5 voices exist: Settings → Time & Language → Speech → Manage voices, install at least one. Reinstall pyttsx3 cleanly: `pip uninstall -y pyttsx3 && pip install pyttsx3`. Run `python -c "import pyttsx3; e=pyttsx3.init(); e.say('hello'); e.runAndWait()"` as a quick test.
+**MediaPipe not finding hands**
+- Ensure good lighting and plain background
+- Keep your palm facing the camera
+- Check webcam permissions in Windows settings
 
-- **Low word-recognition accuracy**
-  → Remove the `--quick` flag and train for full epochs. Ensure each word class has at least 20 videos. Raise the `WORD_THRESHOLD` slider in the UI to ignore shaky predictions. Open `models\labels_word.json` and double-check the class index matches the sign you are performing (most confusion happens between visually similar pairs).
+### Frontend Issues
 
-- **Low alphabet (A–Z) accuracy**
-  → Add more images per letter (target 30+, include varied backgrounds, different hands, different lighting). Re-run `preprocess_alphabet.py` then `train_alphabet.py` (no `--quick`).
+**Import errors from backend**
+- Ensure backend modules are accessible
+- Check that `sys.path` includes backend directory (handled automatically in `app.py`)
 
-- **Streamlit opens a blank tab / CORS / connection refused**
-  → Always access via `http://localhost:8501/` (not `http://0.0.0.0:8501/`). Ensure Windows Firewall permits Python for localhost (it usually auto-prompts the first run). If you changed the port manually, add `--server.port 8501`.
+**Streamlit won't start**
+- Verify frontend dependencies are installed
+- Check port 8501 isn't already in use
+- Try: `streamlit run app.py --server.port 8502`
 
-- **`check_env.py` shows packages MISSING right after `pip install -r requirements.txt`**
-  → Almost certainly you forgot to activate the venv. Run `venv\Scripts\activate` and re-run both commands. Confirm with `where python` — the first result should be `d:\ISL-Sign2Speech\venv\Scripts\python.exe`.
+**No webcam feed**
+- Change `WEBCAM_INDEX` in `backend/config.py` (try 0, 1, or 2)
+- Close other apps using the webcam
+- Grant camera permission to Python
 
-- **(Bonus) Training runs but val_acc plateaus very low**
-  → Check landmark shapes visually via the curves PNG under `models\`. If training loss ≫ val loss, increase dropout in `config.py` (`ALPHABET_MODEL_KWARGS` / `WORD_MODEL_KWARGS`). If both are high, add more data or double `--epochs`.
+### General Issues
+
+**Wrong virtual environment**
+- Always activate the correct venv:
+  - Backend: `backend\venv\Scripts\activate`
+  - Frontend: `frontend\venv\Scripts\activate`
+
+**Package conflicts**
+- Use separate virtual environments for frontend and backend
+- Clear pip cache if needed: `pip cache purge`
 
 ---
 
-## 📁 Project Tree
+## 📊 Training Models
 
-```
-ISL-Sign2Speech\
-├── app.py                          # Streamlit web UI entry point
-├── config.py                       # All tunables: paths, model sizes, thresholds, SEED
-├── requirements.txt                # Pinned deps (TF 2.16, MP 0.10.14, …)
-├── run.bat                         # One-click Windows launcher
-├── README.md                       # This file
-│
-├── dataset\                        # (created by check_env / you)
-│   ├── alphabet\
-│   │   ├── A\  *.jpg/*.png         # ≥10 images per A–Z folder
-│   │   ├── B\
-│   │   └── ... Z\
-│   └── words\
-│       ├── <WordClass1>\  *.mp4    # 60 class folders, each with N videos
-│       ├── <WordClass2>\
-│       └── ...
-│
-├── data\
-│   ├── landmarks\                  # Preprocessed .npy arrays produced by preprocess_*.py
-│   │   ├── alphabet_X_train.npy
-│   │   ├── alphabet_y_train.npy
-│   │   ├── alphabet_X_val.npy
-│   │   ├── alphabet_y_val.npy
-│   │   ├── alphabet_X.npy
-│   │   ├── alphabet_y.npy
-│   │   ├── words_X_train.npy
-│   │   ├── words_y_train.npy
-│   │   ├── words_X_val.npy
-│   │   ├── words_y_val.npy
-│   │   ├── words_X.npy
-│   │   └── words_y.npy
-│   ├── training_log_alphabet.csv
-│   └── training_log_words.csv
-│
-├── models\
-│   ├── alphabet_model.keras        # Trained MLP
-│   ├── alphabet_model_best.keras
-│   ├── word_model.keras            # Trained LSTM
-│   ├── word_model_best.keras
-│   ├── labels_alphabet.json        # label↔idx map for 26 letters
-│   ├── labels_word.json            # label↔idx map for ~60 word classes
-│   ├── scaler_alphabet.json        # sklearn StandardScaler state
-│   ├── scaler_words.json
-│   ├── alphabet_training_curves.png
-│   └── word_training_curves.png
-│
-├── setup\
-│   └── check_env.py                # Diagnostic script + next-step planner
-│
-├── src\
-│   ├── __init__.py
-│   ├── hand_tracker.py             # MediaPipe Hands wrapper → 63-d vec/frame
-│   ├── alphabet_recognizer.py      # Loads + runs alphabet_model.keras
-│   ├── word_recognizer.py          # Loads + runs word_model.keras over seq windows
-│   ├── sentence_builder.py         # Debounce, dedupe, token buffering, history
-│   ├── speech.py                   # pyttsx3 thin wrapper
-│   ├── preprocess_alphabet.py      # A–Z images → landmark .npy + labels JSON
-│   ├── preprocess_words.py         # Word videos → seq landmark .npy + labels JSON
-│   ├── train_alphabet.py           # Train alphabet MLP (--quick / --epochs)
-│   └── train_words.py              # Train word BiLSTM (--quick / --epochs)
-│
-├── tests\                          # (you create this when adding tests)
-│   └── smoke_e2e.py                # End-to-end smoke: preproc → train tiny → predict
-│
-└── venv\                           # Virtual environment (auto-created)
+All training scripts support these flags:
+
+| Flag | Description |
+|---|---|
+| `--epochs N` | Set number of training epochs |
+| `--quick` | Fast training for testing (1 epoch, limited data) |
+| `--landmarks-dir PATH` | Override input landmarks directory |
+| `--model-out PATH` | Override output model path |
+
+**Examples:**
+
+```bat
+cd backend
+venv\Scripts\activate
+
+:: Quick test training
+python src\train_words.py --quick
+
+:: Full training with custom epochs
+python src\train_words.py --epochs 120
+
+:: Train all models (uses batch scripts)
+train_all.bat
 ```
 
 ---
 
-## 🧪 Smoke Testing
+## 🧪 Testing
 
-Before or after a full train, run these to confirm every component loads:
+### Backend Unit Tests
+```bat
+cd backend
+venv\Scripts\activate
+python src\hand_tracker.py
+python src\word_recognizer.py
+```
 
-1. **Environment sanity check** — packages, folders, dataset counts, model presence:
-   ```bat
-   python setup\check_env.py
-   ```
-
-2. **Full end-to-end smoke test** (drops small synthetic data, preprocesses, quick-trains both models, runs a single predict):
-   ```bat
-   python tests\smoke_e2e.py
-   ```
-
-3. **Per-module self-tests** — each `src\` module can be run standalone to exercise its code path:
-   ```bat
-   python src\hand_tracker.py
-   python src\alphabet_recognizer.py
-   python src\word_recognizer.py
-   python src\sentence_builder.py
-   python src\speech.py
-   ```
-
-4. **Streamlit UI smoke** — after models are present, just launch and confirm the page renders:
-   ```bat
-   streamlit run app.py --server.headless true
-   ```
-   Then Ctrl+C once you see `localhost:8501` with no errors.
+### Frontend Testing
+```bat
+cd frontend
+venv\Scripts\activate
+streamlit run app.py --server.headless true
+```
 
 ---
 
-## License / Credits
+## 📝 Configuration
 
-- **Code:** MIT — see `LICENSE` file if present in the repo root.
-- **Datasets:** © their respective owners. Word video dataset from [prasadshet on Kaggle](https://www.kaggle.com/datasets/prasadshet/indian-sign-language-video-dataset) under that dataset's license.
-- **MediaPipe Hands:** © Google LLC, released under the Apache 2.0 license.
-"# INDIAN-SIGN-LANGUAGE-TRANSLATOR-" 
+Edit `backend/config.py` to customize:
+
+- **Paths**: Dataset, models, landmarks directories
+- **Model architecture**: Hidden units, dropout, LSTM size
+- **Training**: Batch size, epochs, learning rate
+- **Recognition**: Confidence thresholds, sequence length
+- **TTS**: Speech rate, volume
+- **Webcam**: Camera index, FPS target
+
+---
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+## 🙏 Credits
+
+- **MediaPipe Hands**: © Google LLC (Apache 2.0)
+- **Dataset**: [ISL Video Dataset by prasadshet](https://www.kaggle.com/datasets/prasadshet/indian-sign-language-video-dataset)
+- **ISL-CSLRT Corpus**: Sentence-level ISL data
+
+---
+
+## 🔗 Links
+
+- [MediaPipe Documentation](https://developers.google.com/mediapipe)
+- [Streamlit Documentation](https://docs.streamlit.io)
+- [TensorFlow Documentation](https://www.tensorflow.org)
+
+---
+
+**Built with ❤️ for the Indian Sign Language community**

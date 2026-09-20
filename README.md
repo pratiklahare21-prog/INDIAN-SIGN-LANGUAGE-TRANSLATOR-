@@ -167,7 +167,83 @@ ISL-Sign2Speech\
 ├── README.md                       # This file
 └── .gitignore
 ```
+# 🇮🇳 ISL Sign2Speech
 
+> **Real-Time Indian Sign Language Recognition & Speech Translation System**
+
+ISL Sign2Speech is a real-time **Indian Sign Language (ISL) recognition system** that uses computer vision and machine learning to recognize hand signs, convert them into text/sentences, and speak the recognized sentence aloud.
+
+The project runs **locally and offline on Windows**, using **MediaPipe Hands, machine-learning models, OpenCV, and Streamlit**.
+
+---
+
+## ✨ Features
+
+- 🤟 **A–Z Fingerspelling Recognition**
+  - Recognizes static hand poses representing English alphabets.
+
+- 📝 **ISL Word Recognition**
+  - Recognizes dataset-derived Indian Sign Language words from video sequences.
+
+- 💬 **Sentence Recognition**
+  - Supports sentence-level ISL video processing and recognition.
+
+- 🧩 **Sentence Builder**
+  - Combines recognized letters and words into a complete sentence.
+
+- 🔊 **Text-to-Speech**
+  - Converts the generated sentence into spoken audio.
+
+- 📷 **Real-Time Webcam Recognition**
+  - Uses the webcam for live sign detection.
+
+- ✋ **MediaPipe Hand Tracking**
+  - Extracts hand landmarks for machine-learning based recognition.
+
+- 🔒 **Offline & Privacy Focused**
+  - Processing is performed locally without sending webcam video to cloud services.
+
+- 🖥️ **Streamlit Web Interface**
+  - Provides an interactive interface for real-time translation.
+
+---
+
+## 🧠 How It Works
+
+```text
+             Webcam
+                │
+                ▼
+      MediaPipe Hand Tracking
+                │
+                ▼
+       Hand Landmark Extraction
+                │
+                ▼
+        Feature Preprocessing
+                │
+                ▼
+       ┌────────┼────────┐
+       │        │        │
+       ▼        ▼        ▼
+   Alphabet    Word   Sentence
+     Model     Model     Model
+       │        │        │
+       └────────┼────────┘
+                ▼
+           Prediction
+                │
+                ▼
+         Sentence Builder
+                │
+                ▼
+               Text
+                │
+                ▼
+         Text-to-Speech
+                │
+                ▼
+             🔊 Audio
 ---
 
 ## 🔧 Development Workflow
